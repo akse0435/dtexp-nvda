@@ -1,0 +1,94 @@
+name: Release add-on
+on:
+  push:
+    branches: [main]
+    paths:
+      - addon/manifest.ini
+      - .github/workflows/release.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Read name and version from manifest
+        id: meta
+        run: |
+          get() {
+            grep -E "^[[:space:]]*$1[[:space:]]*=" addon/manifest.ini | head -n1 \
+              | cut -d= -f2- | tr -d '\r"' | xargs
+          }
+          NAME="$(get name)"
+          VERSION="$(get version)"
+          if [ -z "$NAME" ] || [ -z "$VERSION" ]; then
+            echo "::error::Could not read name/version from addon/manifest.ini"
+            exit 1
+          fi
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Add-on: $NAME, version: $VERSION"
+
+      - name: Check if version is already released
+        id: check
+        run: |
+          if git rev-parse -q --verify "refs/tags/${{ steps.meta.outputs.tag }}" >/dev/null; then
+            echo "Tag ${{ steps.meta.outputs.tag }} already exists - skipping release."
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build .nvda-addon
+        if: steps.check.outputs.exists == 'false'
+        id: build
+        run: |
+          FILE="${{ steps.meta.outputs.name }}-${{ steps.meta.outputs.version }}.nvda-addon"
+          cd addon
+          zip -r -X "../$FILE" . -x '*__pycache__*' -x '*.pyc'
+          cd ..
+          unzip -l "$FILE"
+          echo "file=$FILE" >> "$GITHUB_OUTPUT"
+
+      - name: Extract release notes from changelog.md
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          : > release_notes.md
+          if [ -f changelog.md ]; then
+            awk -v v="V${{ steps.meta.outputs.version }}" '
+              { sub(/\r$/, ""); line = $0; sub(/^[[:space:]#*_]+/, "", line) }
+              found && line ~ /^[Vv][0-9]/ { exit }
+              found { buf[++n] = $0 }
+              index(line, v " ") == 1 || index(line, v "*") == 1 || index(line, v ":") == 1 || line == v { found = 1 }
+              END {
+                s = 1; while (s <= n && buf[s] ~ /^[[:space:]]*$/) s++
+                e = n; while (e >= s && buf[e] ~ /^[[:space:]]*$/) e--
+                for (i = s; i <= e; i++) print buf[i]
+              }
+            ' changelog.md > release_notes.md
+          else
+            echo "::warning::changelog.md not found"
+          fi
+          if [ ! -s release_notes.md ]; then
+            echo "No changelog entry found for version ${{ steps.meta.outputs.version }}." > release_notes.md
+          fi
+          cat release_notes.md
+
+      - name: Create release
+        if: steps.check.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.meta.outputs.tag }}" \
+            "${{ steps.build.outputs.file }}" \
+            --target "${{ github.sha }}" \
+            --title "${{ steps.meta.outputs.name }} ${{ steps.meta.outputs.version }}" \
+            --notes-file release_notes.md
