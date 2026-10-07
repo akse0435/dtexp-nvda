@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DECtalk Express driver for NVDA</title>
+</head>
+<body>
+<h1>DECtalk Express driver for NVDA</h1>
+<h2>What is this</h3>
+<p>This NVDA add-on adds support for using a DECtalk Express hardware speech synthesizer (or another DECtalk unit in RS-232 mode) to NVDA. It supports changing of voices, rate, pitch, inflection, and pauses from the voice settings dialog in NVDA. It also comes with a configuration utility where you can create custom voices, check firmware and battery status, and even upgrade the firmware of your DECtalk Express.</p>
+<p>Please Note: this NVDA add-on has been coded with the help of AI, so not everything might be perfect, however all testing of the add-on has been done by myself with real hardware. All contributions and feedback are very welcome.</p>
+<h2>Getting started</h2>
+<ol>
+<li>Install this add-on and restart NVDA.</li>
+<li>Open NVDA menu, Preferences, Settings, category <strong>DECtalk Express</strong>, and choose the COM port. <strong>Find automatically</strong> searches all ports for the unit; <strong>Test</strong> speaks a test sentence on the chosen port. Press OK.</li>
+<li>Select DECtalk Express in the synthesizer dialog (NVDA+Ctrl+S).</li>
+</ol>
+<p>The port is always opened at 9600 baud, 8 data bits, no parity, 1 stop bit, XON/XOFF flow control, and NVDA gives an error if there's no DECtalk Express on the selected port.</p>
+<h2>Voice settings</h2>
+<p>The following settings can be changed in the voice settings dialog:</p>
+<ul>
+<li><strong>Voice</strong>: Perfect Paul, Beautiful Betty, Huge Harry, Frail Frank, Doctor Dennis, Kit the Kid, Uppity Ursula, Rough Rita, Whispering Wendy, Variable Val, and custom voices.</li>
+<li><strong>Rate</strong>: 0 % is 75 and 100 % is 650 words per minute.</li>
+<li><strong>Pitch</strong>: average pitch; 0 % is 50 Hz and 100 % is 350 Hz.</li>
+<li><strong>Inflection</strong>: pitch range; 0 % is 0 and 100 % is 250 % of normal.</li>
+<li><strong>Sentence pause</strong> and <strong>Comma pause</strong>: milliseconds added to the normal pause (470 ms after a period and 95 ms after a comma on the DECtalk Express).</li>
+<li><strong>Split mixed-case words</strong>: "DECTalk" is spoken as "DEC Talk".</li>
+<li><strong>Allow inline DECtalk commands in spoken text</strong>: DECtalk's own inline commands are passed to the unit. Unpaired square brackets are always removed.</li>
+</ul>
+<p>Choosing a voice sets pitch and inflection to that voice's own values, for example 24 % pitch for Paul (122 Hz).</p>
+<h2>DECtalk Express Configuration Utility</h2>
+<p>NVDA menu, Tools, DECtalk Express Configuration Utility. It has two tabs.</p>
+<h3>General</h3>
+<p>Please note, the options on this tab only work with a real DECtalk Express unit, since other DECtalk hardware units don't support these options.</p>
+<h4>Firmware version and power status</h4>
+<p>When the utility opens, it asks the unit for its firmware version and power status and shows the answers in the Status field. <strong>Check firmware version</strong> and <strong>Check battery status</strong> update the field and then make the unit speak the information.</p>
+<h4>Firmware upgrade</h4>
+<p><strong>Upgrade firmware</strong> lets you flash a new firmware to the DECtalk Express, useful if you want to try out another version than the one currently installed in your unit. Make sure NVDA is using another speech synthesizer before starting this process.</p>
+<ol>
+<li>When the button is activated, you are first asked to choose the folder with the update files (mon.hex, fastload.hxo and out.flr). Here you can also choose to turn off fast transfer.</li>
+<li>The files are then loaded into the unit's memory in that order, and the unit then writes the new firmware to its flash memory. The upgrade takes several minutes, and NVDA announces the progress. Until the flash memory is being written, the upgrade can be cancelled without changing the unit. Never turn the unit off while the flash memory is written.</li>
+<li>When the upgrade is complete, turn the unit off and on again. When the unit has spoken its startup message, select DECtalk Express in the synthesizer dialog.</li>
+<li>If fast transfer (57600 baud) causes problems, turn it off to use 9600 baud.</li>
+</ol>
+<h3>Voice Manager</h3>
+<p>Here you can create custom voices from a base voice, which gives you access to set every single parameter DECtalk supports. <strong>Test</strong> (Alt+T) makes the selected voice speak a test sentence on the unit. Saved voices appear in the voice list, and each voice can be exported as a .dtv file, to be imported in another NVDA installation.</p>
+<h2>Connection check</h2>
+<p>When the synthesizer is loaded, the add-on sends Ctrl+C and waits for the unit's answer. If the unit is off, not connected, or on another port, NVDA reports that the synthesizer could not be loaded and keeps the current one. The cable must carry data in both directions; the unit's answers are also what NVDA needs for say all.</p>
+<h2>Notes</h2>
+<ul>
+<li>There is no volume setting yet; use the volume control on the unit.</li>
+<li>Voice defaults are from DECtalk Express firmware version 4.2CD.</li>
+<li>The add-on is configured for US English only, since another language can only be used by installling a firmware with a different language on the unit. Non US characters are simplified to plain ASCII.</li>
+</ul>
+</body>
+</html>
