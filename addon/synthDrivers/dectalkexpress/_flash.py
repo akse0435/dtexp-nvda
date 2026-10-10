@@ -59,7 +59,8 @@ def findFiles(folder):
 
 class Flasher(object):
 	"""Run with run(); call cancel() from another thread to stop before the
-	flash is written. `progress(fraction or None, text)` reports status."""
+	flash is written. `progress(fraction or None, text)` reports status; while
+	loading, `fraction` is for the current file."""
 
 	def __init__(self, portName, files, fast=True, progress=None):
 		self.portName = portName
@@ -71,8 +72,6 @@ class Flasher(object):
 		self._port = None
 		self._pushback = bytearray()
 		self._log = bytearray()  # last characters from the unit, for errors
-		self._total = sum(os.path.getsize(f) for f in files)
-		self._sent = 0
 		self._verbose = True  # log the dialogue (not the file lines)
 
 	def cancel(self):
@@ -237,8 +236,13 @@ class Flasher(object):
 			data = f.read()
 		lines = data.split(b"\n")
 		# Like mfg_load, only complete lines (ending in a newline) are sent.
+		total = float(max(len(data) - len(lines[-1]), 1))
+		done = 0
+		text = "Loading %s" % name
+		self._progress(0.0, text)
 		for i, line in enumerate(lines[:-1]):
 			self._check()
+			done += len(line) + 1
 			if line.endswith(b"\r"):
 				line = line[:-1]
 			line += b"\r"
@@ -254,9 +258,9 @@ class Flasher(object):
 					k = self._send(line, 1)
 				if k != ">":
 					self._fail("the unit rejected a line of %s" % name)
-			self._sent += len(line) + 1
 			if i % 64 == 0:
-				self._progress(self._sent / float(self._total), "Loading %s" % name)
+				self._progress(done / total, text)
+		self._progress(1.0, text)
 
 	def _program(self):
 		self._progress(1.0, "Starting to write the flash memory")
