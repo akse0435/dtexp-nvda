@@ -42,8 +42,8 @@ When the utility opens, it asks the unit for its firmware version and power stat
 
 **Upgrade firmware** lets you flash a new firmware to the DECtalk Express, useful if you want to try out another version than the one currently installed in your unit. Make sure NVDA is using another speech synthesizer before starting this process.
 
-1. When the button is activated, you are first asked to choose the folder with the update files (mon.hex, fastload.hxo and out.flr). Here you can also choose to turn off fast transfer.
-2. The files are then loaded into the unit's memory in that order, and the unit then writes the new firmware to its flash memory. The upgrade takes several minutes, and NVDA announces the progress. Until the flash memory is being written, the upgrade can be cancelled without changing the unit. Never turn the unit off while the flash memory is written.
+1. When the button is activated, NVDA first checks which firmware versions can be downloaded. In the dialog that opens, choose **Download firmware** and pick a version in the **Version** list, or choose **Use local firmware files** and choose the folder with the update files (mon.hex, fastload.hxo and out.flr). Here you can also choose to turn off fast transfer.
+2. A downloaded firmware is checked against its SHA256 checksum and unpacked to a temporary folder, which is deleted again when the upgrade dialog closes. The files are then loaded into the unit's memory in that order, and the unit then writes the new firmware to its flash memory. The upgrade takes several minutes, and NVDA announces the progress. Until the flash memory is being written, the upgrade can be cancelled without changing the unit. Never turn the unit off while the flash memory is written.
 3. When the upgrade is complete, turn the unit off and on again. When the unit has spoken its startup message, select DECtalk Express in the synthesizer dialog.
 4. If fast transfer (57600 baud) causes problems, turn it off to use 9600 baud.
 

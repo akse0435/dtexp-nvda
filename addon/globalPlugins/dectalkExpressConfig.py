@@ -19,9 +19,9 @@ except ImportError:
 	NVDASettingsDialog = SettingsPanel = None
 
 try:
-	from synthDrivers.dectalkexpress import _conf, _flash, _params, _serialio, _voicestore
+	from synthDrivers.dectalkexpress import _conf, _download, _flash, _params, _serialio, _voicestore
 except Exception:
-	_conf = _flash = _params = _serialio = _voicestore = None
+	_conf = _download = _flash = _params = _serialio = _voicestore = None
 	log.exception("DECtalk Express configuration utility: driver package unavailable")
 
 SYNTH_NAME = "dectalkexpress"
@@ -284,11 +284,42 @@ class GeneralPanel(wx.Panel):
 		else:
 			port = _conf.getPort()
 		log.info("DECtalk Express configuration utility: upgrade on %s (synthesizer active: %s)" % (port, synth is not None))
+		# First see which firmwares can be downloaded.
+		self.upgradeButton.Disable()
+		_speak("Checking for firmware downloads")
+
+		def worker():
+			try:
+				firmwares, error = _download.fetchList(), None
+			except Exception as e:
+				log.error("DECtalk Express: getting the firmware list failed", exc_info=True)
+				firmwares, error = [], e
+			wx.CallAfter(self._openUpgrade, port, firmwares, error)
+
+		thread = threading.Thread(target=worker, name="DECtalkExpressFirmwareList")
+		thread.daemon = True
+		thread.start()
+
+	def _openUpgrade(self, port, firmwares, error):
+		if not self:  # dialog already closed
+			return
+		self.upgradeButton.Enable()
+		if error is not None or not firmwares:
+			if error is not None:
+				text = "Could not get the list of firmware downloads: %s" % error
+			else:
+				text = "No firmware downloads are available."
+			gui.messageBox(text + "\n\nYou can still upgrade with local firmware files.",
+				"Upgrade DECtalk Express firmware", wx.OK | wx.ICON_WARNING, self)
 		# The upgrade needs the port to itself.
 		self.link.close()
-		dlg = UpgradeDialog(self, port)
-		result = dlg.ShowModal()
-		dlg.Destroy()
+		dlg = UpgradeDialog(self, port, firmwares)
+		try:
+			result = dlg.ShowModal()
+		finally:
+			# Delete the downloaded files.
+			dlg.cleanup()
+			dlg.Destroy()
 		if result == wx.ID_OK:
 			# Upgraded: the unit must be restarted, so the utility closes too.
 			self.GetTopLevelParent().Close()
@@ -298,25 +329,43 @@ class GeneralPanel(wx.Panel):
 
 
 class UpgradeDialog(wx.Dialog):
-	"""Choose the update folder, load the files into the unit's RAM and let it
-	write them to flash."""
+	"""Download a firmware or choose a folder with one, load the files into the
+	unit's RAM and let it write them to flash."""
 
-	def __init__(self, parent, port):
+	SOURCES = ("Download firmware", "Use local firmware files")
+
+	def __init__(self, parent, port, firmwares):
 		super().__init__(parent, title="Upgrade DECtalk Express firmware")
 		self.port = port
+		self.firmwares = firmwares
 		self._flasher = None
+		self._downloader = None  # a download in progress
+		self._downloaded = None  # the last finished download, kept for retries
 		self._files = None
 		self._switched = False  # NVDA was moved off the DECtalk Express
 		helper = guiHelper.BoxSizerHelper(self, orientation=wx.VERTICAL)
 		helper.addItem(wx.StaticText(self, label=(
-			"Loads a new firmware from the folder you choose into the memory of the DECtalk "
-			"Express on %s; the unit then writes it to its flash memory. This takes several "
-			"minutes. Never turn off the unit while the flash memory is written." % port
+			"Loads a new firmware, downloaded or from a folder you choose, into the memory of "
+			"the DECtalk Express on %s; the unit then writes it to its flash memory. This takes "
+			"several minutes. Never turn off the unit while the flash memory is written." % port
 		), size=(440, -1)))
+		self.sourceRadio = helper.addItem(wx.RadioBox(
+			self, label="Firmware s&ource", choices=self.SOURCES,
+			majorDimension=1, style=wx.RA_SPECIFY_COLS,
+		))
+		versionRow = guiHelper.BoxSizerHelper(self, orientation=wx.HORIZONTAL)
+		self.versionChoice = versionRow.addLabeledControl(
+			"&Version:", wx.Choice, choices=[f.name for f in firmwares])
+		if firmwares:
+			self.versionChoice.SetSelection(0)
+		helper.addItem(versionRow)
 		folderRow = guiHelper.BoxSizerHelper(self, orientation=wx.HORIZONTAL)
 		self.folderCtrl = folderRow.addLabeledControl("Update &folder:", wx.TextCtrl, size=(300, -1))
 		self.browseButton = folderRow.addItem(wx.Button(self, label="&Browse..."))
 		helper.addItem(folderRow)
+		self._sizer = helper.sizer
+		self._versionRow = versionRow.sizer
+		self._folderRow = folderRow.sizer
 		self.fastCheck = helper.addItem(wx.CheckBox(self, label="Fast &transfer (57600 baud)"))
 		self.fastCheck.SetValue(True)
 		progressRow = wx.BoxSizer(wx.HORIZONTAL)
@@ -332,6 +381,7 @@ class UpgradeDialog(wx.Dialog):
 		self.startButton = buttons.addButton(self, label="&Start upgrade")
 		self.closeButton = buttons.addButton(self, id=wx.ID_CANCEL, label="&Close")
 		helper.addDialogDismissButtons(buttons)
+		self.sourceRadio.Bind(wx.EVT_RADIOBOX, lambda e: self._showSource())
 		self.browseButton.Bind(wx.EVT_BUTTON, self.onBrowse)
 		self.startButton.Bind(wx.EVT_BUTTON, self.onStart)
 		self.closeButton.Bind(wx.EVT_BUTTON, self.onClose)
@@ -339,12 +389,44 @@ class UpgradeDialog(wx.Dialog):
 		self.SetEscapeId(wx.ID_CANCEL)
 		border = wx.BoxSizer(wx.VERTICAL)
 		border.Add(helper.sizer, flag=wx.ALL, border=guiHelper.BORDER_FOR_DIALOGS)
-		self.SetSizerAndFit(border)
+		self.SetSizer(border)
+		if firmwares:
+			self.sourceRadio.SetSelection(0)
+		else:
+			# Nothing to download: only local files.
+			self.sourceRadio.SetSelection(1)
+			self.sourceRadio.EnableItem(0, False)
+			self._status("No firmware downloads are available; choose a folder with the update files.")
+		self._showSource()
 		self.CentreOnScreen()
-		self.folderCtrl.SetFocus()
+		self.sourceRadio.SetFocus()
+
+	def _isDownload(self):
+		return self.sourceRadio.GetSelection() == 0
+
+	def _showSource(self):
+		"""Show the version list or the folder, as the source needs."""
+		download = self._isDownload()
+		self._sizer.Show(self._versionRow, download, recursive=True)
+		self._sizer.Show(self._folderRow, not download, recursive=True)
+		self.Fit()
+		self.Layout()
+
+	def _enableInputs(self, enable):
+		for ctrl in (self.sourceRadio, self.versionChoice, self.folderCtrl, self.browseButton,
+				self.fastCheck, self.startButton):
+			ctrl.Enable(enable)
+		if enable and not self.firmwares:
+			self.sourceRadio.EnableItem(0, False)
 
 	def _status(self, text):
 		self.statusText.SetValue(text)
+
+	def cleanup(self):
+		"""Delete the downloaded firmware files, if any."""
+		downloaded, self._downloaded = self._downloaded, None
+		if downloaded is not None:
+			downloaded.cleanup()
 
 	def onBrowse(self, evt):
 		with wx.DirDialog(self, "Folder with the firmware update files",
@@ -359,37 +441,94 @@ class UpgradeDialog(wx.Dialog):
 		self.folderCtrl.SetFocus()
 
 	def onStart(self, evt):
-		try:
-			files = _flash.findFiles(self.folderCtrl.GetValue().strip())
-		except _flash.FlashError as e:
-			gui.messageBox(str(e), self.GetTitle(), wx.OK | wx.ICON_ERROR, self)
-			return
+		firmware = files = None
+		if self._isDownload():
+			firmware = self.firmwares[self.versionChoice.GetSelection()]
+			question = "Download firmware %s and upgrade the DECtalk Express on %s with it now?" % (
+				firmware.name, self.port)
+		else:
+			try:
+				files = _flash.findFiles(self.folderCtrl.GetValue().strip())
+			except _flash.FlashError as e:
+				gui.messageBox(str(e), self.GetTitle(), wx.OK | wx.ICON_ERROR, self)
+				return
+			question = "Upgrade the firmware of the DECtalk Express on %s now?" % self.port
 		if gui.messageBox(
-			"Upgrade the firmware of the DECtalk Express on %s now?\n\n"
-			"Make sure the unit is on and has external power. Do not turn it off "
-			"until the upgrade is complete." % self.port,
+			question + "\n\nMake sure the unit is on and has external power. Do not turn it off "
+			"until the upgrade is complete.",
 			self.GetTitle(), wx.YES_NO | wx.ICON_WARNING, self,
 		) != wx.YES:
 			return
+		self._enableInputs(False)
+		self.closeButton.SetLabel("&Cancel")
+		self._lastText = None
+		if firmware is None:
+			self._startFlash(files)
+			return
+		if self._downloaded is not None and self._downloaded.firmware is firmware:
+			# Already downloaded, by an earlier try.
+			self._startFlash(self._downloaded.files)
+			return
+		self.cleanup()
+		self._downloader = _download.Download(
+			firmware, progress=lambda fraction, text: wx.CallAfter(self._onProgress, fraction, text),
+		)
+		thread = threading.Thread(target=self._downloadWork, name="DECtalkExpressDownload")
+		thread.daemon = True
+		thread.start()
+
+	def _downloadWork(self):
+		try:
+			self._downloader.run()
+			result = ("done", None)
+		except _flash.FlashCancelled:
+			result = ("cancelled", None)
+		except _flash.FlashError as e:
+			result = ("failed", e)
+		except Exception as e:
+			log.exception("DECtalk Express: firmware download failed")
+			result = ("failed", e)
+		wx.CallAfter(self._downloadFinished, *result)
+
+	def _downloadFinished(self, outcome, error):
+		download, self._downloader = self._downloader, None
+		if outcome == "done":
+			self._downloaded = download
+			self._startFlash(download.files)
+			return
+		if outcome == "cancelled":
+			text = "The download was cancelled; the DECtalk Express was not changed."
+			icon = wx.ICON_WARNING
+		else:
+			text = "The download failed: %s\nThe DECtalk Express was not changed." % error
+			icon = wx.ICON_ERROR
+		self._stopped(text, icon)
+
+	def _stopped(self, text, icon):
+		"""Back to choosing, after `text` is shown."""
+		self.closeButton.SetLabel("&Close")
+		self.closeButton.Enable()
+		self.progress.SetValue(0)
+		self._status(text)
+		gui.messageBox(text, self.GetTitle(), wx.OK | icon, self)
+		self._enableInputs(True)
+
+	def _startFlash(self, files):
 		self._files = files
 		if _activeExpress() is not None:
 			# The driver must let go of the port, and the unit can't speak
 			# during the upgrade.
 			if not self._switchToFallback():
-				gui.messageBox(
+				self._stopped(
 					"NVDA could not switch to another synthesizer, so the port can't be freed.",
-					self.GetTitle(), wx.OK | wx.ICON_ERROR, self,
+					wx.ICON_ERROR,
 				)
 				return
 			self._switched = True
-		for ctrl in (self.folderCtrl, self.browseButton, self.fastCheck, self.startButton):
-			ctrl.Disable()
-		self.closeButton.SetLabel("&Cancel")
 		self._flasher = _flash.Flasher(
 			self.port, files, fast=self.fastCheck.GetValue(),
 			progress=lambda fraction, text: wx.CallAfter(self._onProgress, fraction, text),
 		)
-		self._lastText = None
 		thread = threading.Thread(target=self._work, name="DECtalkExpressFlash")
 		thread.daemon = True
 		thread.start()
@@ -405,7 +544,8 @@ class UpgradeDialog(wx.Dialog):
 		return False
 
 	def _onProgress(self, fraction, text):
-		if self._flasher is None:
+		job = self._flasher or self._downloader
+		if job is None:
 			return
 		try:
 			if fraction is None:
@@ -416,7 +556,7 @@ class UpgradeDialog(wx.Dialog):
 				self._lastText = text
 				self._status(text)
 				_speak(text)
-			self.closeButton.Enable(self._flasher.canCancel)
+			self.closeButton.Enable(job.canCancel)
 		except RuntimeError:
 			pass
 
@@ -466,13 +606,13 @@ class UpgradeDialog(wx.Dialog):
 		if outcome == "done":
 			self.EndModal(wx.ID_OK)  # onUpgrade then closes the utility
 			return
-		for ctrl in (self.folderCtrl, self.browseButton, self.fastCheck, self.startButton):
-			ctrl.Enable()
+		self._enableInputs(True)
 
 	def onClose(self, evt):
-		if self._flasher is not None:
-			if self._flasher.canCancel:
-				self._flasher.cancel()
+		job = self._flasher or self._downloader
+		if job is not None:
+			if job.canCancel:
+				job.cancel()
 				self._status("Cancelling...")
 			return
 		self.EndModal(wx.ID_CLOSE)

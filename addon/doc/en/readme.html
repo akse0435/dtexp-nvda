@@ -37,8 +37,8 @@
 <h4>Firmware upgrade</h4>
 <p><strong>Upgrade firmware</strong> lets you flash a new firmware to the DECtalk Express, useful if you want to try out another version than the one currently installed in your unit. Make sure NVDA is using another speech synthesizer before starting this process.</p>
 <ol>
-<li>When the button is activated, you are first asked to choose the folder with the update files (mon.hex, fastload.hxo and out.flr). Here you can also choose to turn off fast transfer.</li>
-<li>The files are then loaded into the unit's memory in that order, and the unit then writes the new firmware to its flash memory. The upgrade takes several minutes, and NVDA announces the progress. Until the flash memory is being written, the upgrade can be cancelled without changing the unit. Never turn the unit off while the flash memory is written.</li>
+<li>When the button is activated, NVDA first checks which firmware versions can be downloaded. In the dialog that opens, choose <strong>Download firmware</strong> and pick a version in the <strong>Version</strong> list, or choose <strong>Use local firmware files</strong> and choose the folder with the update files (mon.hex, fastload.hxo and out.flr). Here you can also choose to turn off fast transfer.</li>
+<li>A downloaded firmware is checked against its SHA256 checksum and unpacked to a temporary folder, which is deleted again when the upgrade dialog closes. The files are then loaded into the unit's memory in that order, and the unit then writes the new firmware to its flash memory. The upgrade takes several minutes, and NVDA announces the progress. Until the flash memory is being written, the upgrade can be cancelled without changing the unit. Never turn the unit off while the flash memory is written.</li>
 <li>When the upgrade is complete, turn the unit off and on again. When the unit has spoken its startup message, select DECtalk Express in the synthesizer dialog.</li>
 <li>If fast transfer (57600 baud) causes problems, turn it off to use 9600 baud.</li>
 </ol>

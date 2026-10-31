@@ -238,6 +238,7 @@ class Flasher(object):
 		# Like mfg_load, only complete lines (ending in a newline) are sent.
 		total = float(max(len(data) - len(lines[-1]), 1))
 		done = 0
+		percent = 0
 		text = "Loading %s" % name
 		self._progress(0.0, text)
 		for i, line in enumerate(lines[:-1]):
@@ -258,7 +259,9 @@ class Flasher(object):
 					k = self._send(line, 1)
 				if k != ">":
 					self._fail("the unit rejected a line of %s" % name)
-			if i % 64 == 0:
+			# Report every whole percent, so the progress bar moves smoothly.
+			if int(done * 100 / total) != percent:
+				percent = int(done * 100 / total)
 				self._progress(done / total, text)
 		self._progress(1.0, text)
 
